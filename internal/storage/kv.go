@@ -10,6 +10,12 @@ import (
 	"encoding/json" 
 )
 
+type KVPayload struct {
+	Key: string `json:"key"`
+	Value          string `json:"value"`
+	ExpirationTtl int    `json:"expirationTtl"`
+}
+
 
 var WorkerClient *http.Client
 
