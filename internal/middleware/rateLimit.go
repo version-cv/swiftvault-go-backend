@@ -71,32 +71,29 @@ func allowRequest(key string, limit int) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond) 
 	defer cancel()
 	
-	
-	const ttlMilliseconds = 1000 
-
-
-	currentCountStr, err := storage.PutKVWithTTL(ctx, key, 1000)
+	const ttlMilliseconds = 1000
+    
+    // --- 1. GET CURRENT COUNT ---
+	currentCountStr, err := storage.GetKV(ctx, key)
 	if err != nil {
-		// Log error, but allow request to proceed (Fail open)
+	
 		log.Printf("KV Rate Limiting Error (Fail Open): %v", err)
 		return true
 	}
-
 
 	currentCount, _ := strconv.Atoi(currentCountStr) 
 
 	newCount := currentCount + 1
 
-	
+	// --- 2. CHECK LIMIT ---
 	if newCount > limit {
 		return false
 	}
 
-
 	err = storage.PutKVWithTTL(ctx, key, strconv.Itoa(newCount), ttlMilliseconds)
 	if err != nil {
 		log.Printf("KV Put Error during rate limiting: %v", err)
-		return true 
+		return true // Fail open
 	}
 
 	return true

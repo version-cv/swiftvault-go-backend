@@ -242,29 +242,37 @@ func FileUploadHandler(w http.ResponseWriter, r *http.Request) {
 ctx := context.Background()
 reader := bytes.NewReader(fileBytes) 
 
-_, err = storage.PutFile(ctx, newContent.StorageName, 
-    reader, newContent.FileSize, newContent.MimeType)
-	if err != nil {
-		log.Printf("Failed to save file to KV, rolling back database record: %v", err)
-		database.DB.Delete(&newContent) 
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Message: "Failed to save file to storage"})
-		return
-	}
+if err := storage.PutFile(
+    ctx, 
+    newContent.StorageName, 
+    reader, 
+    newContent.FileSize, 
+    newContent.MimeType,
+); err != nil {
+    log.Printf("Failed to save file to R2 via Worker, rolling back database record: %v", err)
+    database.DB.Delete(&newContent) // Crucial Rollback Logic
+    w.WriteHeader(http.StatusInternalServerError)
+    json.NewEncoder(w).Encode(APIResponse{Success: false, Message: "Failed to save file to storage"})
+    return
+}
 
-	newFile := models.File{
-		UserID:        claims.UserID,
-		OriginalName:  fileHeader.Filename,
-		FileContentID: newContent.ID,
-		IsPublic:      r.FormValue("isPublic") == "true",
-	}
-	if err := database.DB.Create(&newFile).Error; err != nil {
-		storage.DeleteFile(ctx, file.FileContent.StorageName);
-		database.DB.Delete(&newContent)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Message: "Failed to save file metadata"})
-		return
-	}
+ newFile := models.File{
+        UserID:          claims.UserID,
+        OriginalName:    fileHeader.Filename,
+        FileContentID:   newContent.ID,
+        IsPublic:        r.FormValue("isPublic") == "true",
+    }
+    
+    // Attempt to save the metadata record
+    if err := database.DB.Create(&newFile).Error; err != nil {
+        if deleteErr := storage.DeleteFile(context.Background(), newContent.StorageName); deleteErr != nil {
+            log.Printf("Warning: Failed to delete uploaded R2 file during metadata rollback: %v", deleteErr)
+        }
+        database.DB.Delete(&newContent)
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(APIResponse{Success: false, Message: "Failed to save file metadata"})
+        return
+    }
 
 	log.Printf("File saved successfully: %s", newFile.ID)
 
@@ -548,7 +556,7 @@ func PublicDownloadHandler(w http.ResponseWriter, r *http.Request) {
         json.NewEncoder(w).Encode(APIResponse{Success: false, Message: "Failed to retrieve public file from storage."})
         return
     }
-    defer object.Close()
+    defer fileStream.Close()
 
     // Stream the file to the user.
     w.Header().Set("Content-Type", file.FileContent.MimeType)

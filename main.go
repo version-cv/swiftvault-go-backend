@@ -10,7 +10,6 @@ import (
 	"backend/internal/graphql"
 	"backend/internal/handlers"
 	"backend/internal/middleware"
-	"backend/internal/storage"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
@@ -29,13 +28,6 @@ func main() {
 		log.Fatal("Failed to initialize JWT:", err)
 	}
 
-	// Initialize the minio object storage
-	if err := storage.InitMinio(); err != nil {
-		log.Fatal("Failed to initialize MinIO:", err)
-	}
-
-// Initialize the single global Redis client
-	redis.InitRedis()
 
 	graphqlSchema := graphql.InitSchema()
 
