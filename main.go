@@ -12,6 +12,7 @@ import (
 	"backend/internal/middleware"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
+	"backend/internal/storage"
 )
 
 func main() {
@@ -28,6 +29,9 @@ func main() {
 		log.Fatal("Failed to initialize JWT:", err)
 	}
 
+	// Initialize the KV HTTP Client
+	storage.InitWorkerClient()
+	log.Println("KV Worker HTTP Client Initialized.")
 
 	graphqlSchema := graphql.InitSchema()
 
