@@ -11,7 +11,7 @@ import (
 )
 
 type KVPayload struct {
-	Key: string `json:"key"`
+	Key  string `json:"key"`
 	Value          string `json:"value"`
 	ExpirationTtl int    `json:"expirationTtl"`
 }
