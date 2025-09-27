@@ -13,7 +13,6 @@ import (
 	"backend/internal/storage"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
-	"backend/internal/redis" 
 )
 
 func main() {
