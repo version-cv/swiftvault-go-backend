@@ -50,38 +50,6 @@ func PutFile(ctx context.Context, objectName string, reader io.Reader, objectSiz
 	return nil
 }
 
-// GetFile sends a GET request to the Cloudflare Worker to retrieve a file from R2.
-func GetFile(ctx context.Context, objectName string) (io.ReadCloser, error) {
-	workerEndpoint := os.Getenv("WORKER_ENDPOINT")
-	if workerEndpoint == "" {
-		return nil, fmt.Errorf("WORKER_ENDPOINT environment variable is required")
-	}
-
-	url := fmt.Sprintf("%s/r2/%s", workerEndpoint, objectName)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := WorkerClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("failed to get file: status code %d", resp.StatusCode)
-	}
-
-	return resp.Body, nil
-}
-
-// ====================================================================
-// KV Functions (Cache)
-// ====================================================================
-
-// PutKV sends a PUT request to the Cloudflare Worker to set a key-value pair.
 func PutKVWithTTL(ctx context.Context, key string, value string, expirationTtl int) error {
 	workerEndpoint := os.Getenv("WORKER_ENDPOINT")
 	if workerEndpoint == "" {
@@ -152,6 +120,66 @@ func GetKV(ctx context.Context, key string) (string, error) {
 
 	return string(bodyBytes), nil
 }
+
+
+// DeleteKV sends a DELETE request to the Cloudflare Worker to remove a key from KV.
+func DeleteKV(ctx context.Context, key string) error {
+	workerEndpoint := os.Getenv("WORKER_ENDPOINT")
+	if workerEndpoint == "" {
+		return fmt.Errorf("WORKER_ENDPOINT environment variable is required")
+	}
+
+	url := fmt.Sprintf("%s/kv/%s", workerEndpoint, key)
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := WorkerClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// 200 OK or 204 No Content typically means success
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("failed to delete KV key: status code %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+
+//CLOUDFLARE R2 RELATED FUNCTIONS 
+
+// GetFile sends a GET request to the Cloudflare Worker to retrieve a file from R2.
+func GetFile(ctx context.Context, objectName string) (io.ReadCloser, error) {
+	workerEndpoint := os.Getenv("WORKER_ENDPOINT")
+	if workerEndpoint == "" {
+		return nil, fmt.Errorf("WORKER_ENDPOINT environment variable is required")
+	}
+
+	url := fmt.Sprintf("%s/r2/%s", workerEndpoint, objectName)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := WorkerClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("failed to get file: status code %d", resp.StatusCode)
+	}
+
+	return resp.Body, nil
+}
+
 
 
 func DeleteFile(ctx context.Context, objectName string) error {

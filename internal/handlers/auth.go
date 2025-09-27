@@ -10,9 +10,9 @@ import (
 	"log"
 	"backend/internal/auth"
 	"backend/internal/database"
+	"backend/internal/storage"
 	"backend/internal/models"
 	"backend/internal/otp"
-	"backend/internal/redis"
 	"gorm.io/gorm"
 	"backend/internal/emails"
 )
@@ -169,13 +169,14 @@ func SendResetOTPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	otpCode := otp.GenerateOTP()
-	key := fmt.Sprintf("otp:resetPwd:%s", req.Email)
-	if err := redis.RDB.Set(redis.Ctx, key, otpCode, otp.OTP_EXPIRATION).Err(); err != nil {
-		log.Printf("Error setting OTP in Redis: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Message: "Failed to generate OTP"})
-		return
-	}
+    key := fmt.Sprintf("otp:resetPwd:%s", req.Email)
+	 ttlMs := int(otp.OTP_EXPIRATION.Milliseconds())
+	 if err := storage.PutKVWithTTL(context.Background(), key, otpCode, ttlMs); err != nil {
+        log.Printf("Error setting OTP via KV Worker: %v", err)
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(APIResponse{Success: false, Message: "Failed to generate OTP"})
+        return
+    }
 
 	go func() {
 		if err := emails.SendResetEmail(req.Email, otpCode); err != nil {
@@ -204,14 +205,15 @@ func SendOTPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	otpCode := otp.GenerateOTP()
-	key := fmt.Sprintf("otp:register:%s", req.Email)
-	if err := redis.RDB.Set(redis.Ctx, key, otpCode, otp.OTP_EXPIRATION).Err(); err != nil {
-		log.Printf("Error setting OTP in Redis: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Message: "Failed to generate OTP"})
-		return
-	}
+	  otpCode := otp.GenerateOTP()
+    key := fmt.Sprintf("otp:register:%s", req.Email)
+	ttlMs := int(otp.OTP_EXPIRATION.Milliseconds())
+	 if err := storage.PutKVWithTTL(context.Background(), key, otpCode, ttlMs); err != nil {
+        log.Printf("Error setting OTP via KV Worker: %v", err)
+        w.WriteHeader(http.StatusInternalServerError)
+        json.NewEncoder(w).Encode(APIResponse{Success: false, Message: "Failed to generate OTP"})
+        return
+    }
     
 	//Direct Async Call
     go func() {
@@ -237,9 +239,8 @@ func ForgotPasswordHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // --- OTP VERIFICATION ---
-    otpKey := fmt.Sprintf("otp:resetPwd:%s", req.Email)
-    storedOTP, err := redis.RDB.Get(redis.Ctx, otpKey).Result()
-
+   otpKey := fmt.Sprintf("otp:resetPwd:%s", req.Email)
+  storedOTP, err := storage.GetKV(context.Background(), otpKey)
     if err != nil || storedOTP != req.OTP {
         w.WriteHeader(http.StatusUnauthorized)
         json.NewEncoder(w).Encode(APIResponse{Success: false, Message: "Invalid or expired OTP"})
@@ -271,7 +272,9 @@ func ForgotPasswordHandler(w http.ResponseWriter, r *http.Request) {
     }
     
     // Invalidate the OTP to prevent reuse
-    redis.RDB.Del(redis.Ctx, otpKey)
+   if err := storage.DeleteKV(context.Background(), otpKey); err != nil {
+    log.Printf("Warning: Failed to delete KV key %s: %v", otpKey, err)
+}
 
     // Send a non-blocking email to confirm the password reset
     go func() {
@@ -297,8 +300,8 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     //  OTP VERIFICATION ---
-    otpKey := fmt.Sprintf("otp:register:%s", req.Email)
-    storedOTP, err := redis.RDB.Get(redis.Ctx, otpKey).Result()
+  otpKey := fmt.Sprintf("otp:register:%s", req.Email)
+   storedOTP, err := storage.GetKV(context.Background(), otpKey)
 
     if err != nil || storedOTP != req.OTP {
         w.WriteHeader(http.StatusUnauthorized)
@@ -306,8 +309,10 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // After successful OTP verification, delete the key
-    redis.RDB.Del(redis.Ctx, otpKey)
+
+  if err := storage.DeleteKV(context.Background(), otpKey); err != nil {
+    log.Printf("Warning: Failed to delete expired OTP key %s via KV Worker: %v", otpKey, err)
+}
     //  END OTP VERIFICATION ---
 
     // Check if email already exists
