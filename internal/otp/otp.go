@@ -44,4 +44,3 @@ func VerifyOTP(userID, code string) (bool, error) {
 
 	return val == code, nil
 }
-s
